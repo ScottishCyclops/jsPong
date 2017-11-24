@@ -50,6 +50,23 @@
         vel,
         d
     });
+    const makeMachinePlayer = (pad) =>
+    ({
+        score: 0,
+        type: playerType.MACHINE,
+        hitPos: 0,
+        pad
+    });
+    const makeHumanPlayer = (pad, upKey, downKey) =>
+    ({
+        score: 0,
+        up: false,
+        down: false,
+        type: playerType.HUMAN,
+        pad,
+        upKey,
+        downKey
+    });
     /**
      * Calls `callback` with the paddle that collides with the `pos2`
      *
@@ -71,12 +88,19 @@
         }
     };
 
+    const playerType =
+    {
+        MACHINE: 0,
+        HUMAN: 1
+    };
+
     /**
      * Main function
      */
     const main = () =>
     {
-        // constant between games //
+        // constant between games
+
         const width = innerWidth;
         const height = innerHeight;
 
@@ -96,9 +120,6 @@
         // how much the machine cannot hit on the sides of the paddle
         const hitSafeZone = level === 0 ? paddles.halfHeight - 5 : level === 1 ? 5 : 1;
 
-        const upKey = "w";
-        const downKey = "s";
-
         // canvas
         addToDom(applyStyle(document.createElement("div"), {
             width: px(width),
@@ -115,29 +136,27 @@
             top: 0
         };
 
-        let player1Score = 0;
-        let player2Score = 0;
-
         const paddles = makePaddlesData(vec2(10 * scaleFac, (level === 0 ? 80 : level === 1 ? 60 : 40) * scaleFac), 0.3 * speedFac, 10 * scaleFac);
 
-        // key down flags and events
-        let up = false;
-        let down = false;
-        document.onkeydown = e => branch(e.key === downKey, () => down = true,  () => branch(e.key === upKey, () => up = true));
-        document.onkeyup   = e => branch(e.key === downKey, () => down = false, () => branch(e.key === upKey, () => up = false));
+        const player1 = makeHumanPlayer(makePaddle(vec2(0, 0), paddles.size, elemsColor, baseStyle), "w", "s");
+        const player2 = makeMachinePlayer(makePaddle(vec2(0, 0), paddles.size, elemsColor, baseStyle));
+        const ball =    makeBall(vec2(0, 0), vec2(0, 0), 13  * scaleFac, elemsColor, baseStyle);
+
+        document.onkeydown = e =>
+        {
+            branch(e.key === player1.downKey, () => player1.down = true,   () => branch(e.key === player1.upKey, () => player1.up = true))
+        };
+        document.onkeyup = e =>
+        {
+            branch(e.key === player1.downKey, () => player1.down = false,  () => branch(e.key === player1.upKey, () => player1.up = false))
+        };
 
         // game
 
-        // position on the paddle the machine wants to hit
-        let hitPos = 0;
         // loop breaker flag
         let playing = false;
         let last = 0;
         let startTime = -1;
-        // paddles and ball DOM elements and positions
-        const player1 = makePaddle(vec2(0, 0), paddles.size, elemsColor, baseStyle);
-        const player2 = makePaddle(vec2(0, 0), paddles.size, elemsColor, baseStyle);
-        const ball = makeBall(vec2(0, 0), vec2(0, 0), 13  * scaleFac, elemsColor, baseStyle);
 
         const update = t =>
         {
@@ -149,25 +168,39 @@
             const delta = t - last - startTime;
             last = t - startTime;
 
+            // move players
+            [player1, player2].forEach(player =>
+            {
+                branch(player.type === playerType.HUMAN, () =>
+                {
+                    const direction = (player.up && player.down) || (!player.up && !player.down) ? 0 : player.up ? -1 : 1;
+                    player.pad.pos.y = clamp(player.pad.pos.y + direction * paddles.speed * delta, 0, height - paddles.size.y);
+                    translate(player.pad.elem, player.pad.pos);
+                }, () =>
+                {
+                    const desiredMove = ball.pos.y - player.pad.pos.y - player.hitPos;
+                    const move = normalize(Math.round(desiredMove)) * paddles.speed * delta;
 
-            // move player 1
-            const direction = (up && down) || (!up && !down) ? 0 : up ? -1 : 1;
-            player1.pos.y = clamp(player1.pos.y + direction * paddles.speed * delta, 0, height - paddles.size.y);
-            translate(player1.elem, player1.pos);
+                    player.pad.pos.y = clamp(player.pad.pos.y + move, 0, height - paddles.size.y);
+                    translate(player.pad.elem, player.pad.pos);
+                });
+            });
+
 
             getCollision(paddle =>
             {
                 ball.vel.x *= -1;
 
                 // choose a new hit pos for the machine
-                hitPos = Math.floor(rand(hitSafeZone, paddles.size.y - hitSafeZone));
+                // TODO: move logic in better place
+                player2.hitPos = Math.floor(rand(hitSafeZone, paddles.size.y - hitSafeZone));
 
                 // value between -1 and +1
                 // 0 means hit at the center of the paddle
                 const divergence = (paddle.pos.y + paddles.halfHeight - ball.pos.y) / paddles.halfHeight;
 
                 ball.vel.y -= divergence * divergenceFactor;
-            }, ball.pos, paddles.size, player1, player2);
+            }, ball.pos, paddles.size, player1.pad, player2.pad);
 
             // detect collision with top
             if(ball.pos.y < 0)
@@ -188,9 +221,9 @@
                 let [ won, msg ] = result;
 
                 // increase score
-                branch(won, () => player1Score++, () => player2Score++);
+                branch(won, () => player1.score++, () => player2.score++);
 
-                msg = `${msg}\n${player1Score} - ${player2Score}`;
+                msg = `${msg}\n${player1.score} - ${player2.score}`;
 
                 playing = false;
                 removeFromDom(ball.elem);
@@ -214,15 +247,6 @@
                 { condition: () => ball.pos.x >= width, value: () => [true, "YOU WIN!"] }
             );
 
-            // move player 2
-            // desired position (center of paddle for now)
-            // calc random target position on the paddle
-            const desiredMove = ball.pos.y - player2.pos.y - hitPos;
-            const move = normalize(Math.round(desiredMove)) * paddles.speed * delta;
-
-            player2.pos.y = clamp(player2.pos.y + move, 0, height - paddles.size.y);
-            translate(player2.elem, player2.pos);
-
             // move the ball
             ball.pos.x += ball.vel.x * delta;
             ball.pos.y += ball.vel.y * delta;
@@ -239,14 +263,14 @@
 
         const start = () =>
         {
-            hitPos = 0;
+            // player2.hitPos = 0;
             playing = true;
             last = 0;
             startTime = -1;
-            player1.pos = vec2(paddles.padding, 0);
-            translate(player1.elem, player1.pos);
-            player2.pos = vec2(width - paddles.padding - paddles.size.x, 0);
-            translate(player2.elem, player2.pos);
+            player1.pad.pos = vec2(paddles.padding, 0);
+            translate(player1.pad.elem, player1.pad.pos);
+            player2.pad.pos = vec2(width - paddles.padding - paddles.size.x, 0);
+            translate(player2.pad.elem, player2.pad.pos);
             ball.pos = vec2(width / 2, height / 2);
             ball.vel = multScal(vec2(-0.3, -0.2), speedFac);
             translate(ball.elem, ball.pos);
