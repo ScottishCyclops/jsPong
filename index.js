@@ -1,137 +1,106 @@
 (()=>{
     "use strict"
-
-    const rand = (min, max) => Math.random() * (max - min) + min;
-
-    const setProps = (elem, ...properties) =>
-    {
-        for(const props of properties)
-        {
-            Object.assign(elem, props);
-        }
-        return elem;
-    };
-
-    const applyStyle = (elem, ...styles) =>
-    {
-        setProps(elem.style, ...styles);
-        return elem;
-    }
-
-    const addToDom = elem =>
-    {
-        document.body.appendChild(elem);
-        return elem;
-    };
-
-    const removeFromDom = elem =>
-    {
-        document.body.removeChild(elem);
-        return elem;
-    };
-
-    const px = value => value.toString() + "px";
-
-    const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-    const normalize = value => value < 0 ? -1 : value > 0 ? 1 : 0;
-
-    const translate = (elem, pos) => applyStyle(elem, { transform: `translate(${px(pos.x)}, ${px(pos.y)})` });
-
-    const baseStyle =
-    {
-        position: "absolute",
-        left: 0,
-        top: 0
-    };
-
-    const vec2 = (x, y) =>
-    {
-        return {
-            x,
-            y
-        };
-    };
-
-    const subScal = (vec, scalar) => vec2(vec.x - scalar, vec.y - scalar);
-    const multScal = (vec, scalar) => vec2(vec.x * scalar, vec.y * scalar);
-
+    // game functions
+    /**
+     * Makes the paddle data structure
+     * @param {{x: number, y: number}} size size of the paddle
+     * @param {number} speed speed of the paddle
+     * @param {number} padding distance from the border of the page
+     */
     const makePaddlesData = (size, speed, padding) =>
-    {
-        return {
-            halfHeight: size.y / 2,
-            size,
-            speed,
-            padding
-        };
-    };
-
-    const makePaddle = (pos, size, color) =>
-    {
-        return {
-            elem: translate(addToDom(applyStyle(document.createElement("div"), baseStyle, {
-                width: px(size.x),
-                height: px(size.y),
-                backgroundColor: color,
-            })), pos),
-            pos
-        };
-    };
-
-    const makeBall = (pos, vel, d, color) =>
-    {
-        return {
-            elem: translate(addToDom(applyStyle(document.createElement("div"), baseStyle, {
-                width: px(d),
-                height: px(d),
-                backgroundColor: color,
-            })), pos),
-            r: d / 2,
-            pos,
-            vel,
-            d
-        };
-    };
-
-    const collision = (pos, size, pos2) =>
-    {
-        return pos2.x >= pos.x &&
-            pos2.x <= pos.x + size.x &&
-            pos2.y >= pos.y &&
-            pos2.y <= pos.y + size.y
-    };
-
+    ({
+        halfHeight: size.y / 2,
+        size,
+        speed,
+        padding
+    });
+    /**
+     * Creates a new paddle on the page
+     * @param {{x: number, y: number}} pos the base position of the paddle
+     * @param {{x: number, y: number}} size the size of the paddle
+     * @param {string} color the CSS color string of the paddle
+     * @param {any} extrasStyle any extra styling to apply before the rest
+     */
+    const makePaddle = (pos, size, color, extrasStyle) =>
+    ({
+        elem: translate(addToDom(applyStyle(document.createElement("div"), extrasStyle, {
+            width: px(size.x),
+            height: px(size.y),
+            backgroundColor: color
+        })), pos),
+        pos
+    });
+    /**
+     * Creates a new ball on the page
+     * @param {{x: number, y: number}} pos
+     * @param {{x: number, y: number}} vel
+     * @param {number} d the diameter of the ball
+     * @param {string} color the CSS color string of the paddle
+     * @param {any} extrasStyle any extra styling to apply before the rest
+     */
+    const makeBall = (pos, vel, d, color, extrasStyle) =>
+    ({
+        elem: translate(addToDom(applyStyle(document.createElement("div"), extrasStyle, {
+            width: px(d),
+            height: px(d),
+            backgroundColor: color
+        })), pos),
+        r: d / 2,
+        pos,
+        vel,
+        d
+    });
+    /**
+     * Calls `callback` with the paddle that collides with the `pos2`
+     *
+     * Will call `callback` 0 or 1 time
+     * @param {Function} callback
+     * @param {{x: number, y: number}} pos2
+     * @param {{x: number, y: number}} size
+     * @param {any[]} paddles
+     * @return {any} whatever the `callback` returns
+     */
     const getCollision = (callback, pos2, size, ...paddles) =>
     {
         for(const paddle of paddles)
         {
-            if(collision(paddle.pos, size, pos2))
+            if(isInside(paddle.pos, size, pos2))
             {
                 return callback(paddle);
             }
         }
     };
 
-    // main
-    (()=>{
+    /**
+     * Main function
+     */
+    const main = () =>
+    {
+        // constant between games //
         const width = innerWidth;
         const height = innerHeight;
+
+        const restartTime = 500;
 
         // made originaly for a width of 800px
         const scaleFac = width / 800;
 
         // 0: beginner
-        // 1: novice
+        // 1: normal
         // 2: master
         const level = 1;
 
         // how much the ball goes crazy when hitting on the paddle sides (0-1)
         const divergenceFactor = level === 0 ? 0.3 : level === 1 ? 0.4 : 0.8;
+        const speedFac = scaleFac * (level === 0 ? 0.9 : level === 1.1 ? 1 : 1.3);
+        // how much the machine cannot hit on the sides of the paddle
+        const hitSafeZone = level === 0 ? paddles.halfHeight - 5 : level === 1 ? 5 : 1;
 
-        let up = false;
-        let down = false;
-        let playing = true;
+        const upKey = "w";
+        const downKey = "s";
 
-        const canvas = addToDom(applyStyle(document.createElement("div"), {
+        // canvas
+        addToDom(applyStyle(document.createElement("div"), {
             width: px(width),
             height: px(height),
             backgroundColor: "#333",
@@ -139,77 +108,51 @@
         }));
 
         const elemsColor = "#EEE";
+        const baseStyle =
+        {
+            position: "absolute",
+            left: 0,
+            top: 0
+        };
 
-        const speedFac = scaleFac * (level === 0 ? 0.9 : level === 1.1 ? 1 : 1.3);
+        let player1Score = 0;
+        let player2Score = 0;
+
         const paddles = makePaddlesData(vec2(10 * scaleFac, (level === 0 ? 80 : level === 1 ? 60 : 40) * scaleFac), 0.3 * speedFac, 10 * scaleFac);
 
-        const player1 = makePaddle(vec2(paddles.padding,                         0), paddles.size, elemsColor);
-        const player2 = makePaddle(vec2(width - paddles.padding - paddles.size.x, 0), paddles.size, elemsColor);
+        // key down flags and events
+        let up = false;
+        let down = false;
+        document.onkeydown = e => branch(e.key === downKey, () => down = true,  () => branch(e.key === upKey, () => up = true));
+        document.onkeyup   = e => branch(e.key === downKey, () => down = false, () => branch(e.key === upKey, () => up = false));
 
-        const ball = makeBall(vec2(width / 2,  height / 2), multScal(vec2(-0.3, -0.2), speedFac), 13  * scaleFac, elemsColor);
+        // game
 
-
-        let hitPos = 1;
-        const hitSafeZone = level === 0 ? paddles.halfHeight - 5 : level === 1 ? 5 : 1;
-
-        document.onkeydown = e =>
-        {
-            if(e.key === "s")
-            {
-                down = true;
-            }
-            else if(e.key === "w")
-            {
-                up = true;
-            }
-        };
-
-        document.onkeyup = e =>
-        {
-            if(e.key === "s")
-            {
-                down = false;
-            }
-            else if(e.key === "w")
-            {
-                up = false;
-            }
-        };
-
-        const restart = () =>
-        {
-            ball.pos.x = width / 2;
-            ball.pos.y = height / 2;
-            translate(ball.elem, ball.pos);
-
-            playing = true;
-            update(0);
-        };
-
-        const end = msg =>
-        {
-            removeFromDom(ball.elem);
-            // add message div
-            translate(addToDom(setProps(applyStyle(document.createElement("div"), baseStyle, {
-                fontSize: px(50 * scaleFac),
-                color: elemsColor,
-                width: px(width),
-                textAlign: "center",
-                fontFamily: "monospace"
-            }), { innerText: msg })), vec2(0, 60));
-
-            setTimeout(() => restart(), 1000);
-        }
-
+        // position on the paddle the machine wants to hit
+        let hitPos = 0;
+        // loop breaker flag
+        let playing = false;
         let last = 0;
+        let startTime = -1;
+        // paddles and ball DOM elements and positions
+        const player1 = makePaddle(vec2(0, 0), paddles.size, elemsColor, baseStyle);
+        const player2 = makePaddle(vec2(0, 0), paddles.size, elemsColor, baseStyle);
+        const ball = makeBall(vec2(0, 0), vec2(0, 0), 13  * scaleFac, elemsColor, baseStyle);
+
         const update = t =>
         {
-            const delta = t - last;
-            last = t;
+            if(startTime === -1)
+            {
+                startTime = t;
+            }
+
+            const delta = t - last - startTime;
+            last = t - startTime;
+
 
             // move player 1
             const direction = (up && down) || (!up && !down) ? 0 : up ? -1 : 1;
-            player1.pos.y = clamp(player1.pos.y + direction * paddles.speed * delta, -paddles.halfHeight, height - paddles.halfHeight);
+            player1.pos.y = clamp(player1.pos.y + direction * paddles.speed * delta, 0, height - paddles.size.y);
             translate(player1.elem, player1.pos);
 
             getCollision(paddle =>
@@ -217,7 +160,7 @@
                 ball.vel.x *= -1;
 
                 // choose a new hit pos for the machine
-                hitPos = Math.round(rand(hitSafeZone, paddles.size.y - hitSafeZone));
+                hitPos = Math.floor(rand(hitSafeZone, paddles.size.y - hitSafeZone));
 
                 // value between -1 and +1
                 // 0 means hit at the center of the paddle
@@ -226,31 +169,50 @@
                 ball.vel.y -= divergence * divergenceFactor;
             }, ball.pos, paddles.size, player1, player2);
 
-            // detect collision with top and bottom
+            // detect collision with top
             if(ball.pos.y < 0)
             {
                 ball.pos.y = 0;
                 ball.vel.y *= -1;
             }
-
-            if(ball.pos.y > height)
+            // detect position with bottom
+            if(ball.pos.y > height - 1)
             {
-                ball.pos.y = height;
+                ball.pos.y = height - 1;
                 ball.vel.y *= -1;
             }
 
-            // detect end of the game
-            if(ball.pos.x <= 0)
+            // end of the game
+            multiTestCallback(result =>
             {
-                end("YOU LOOSE!");
-                playing = false;
-            }
+                let [ won, msg ] = result;
 
-            if(ball.pos.x >= width)
-            {
-                end("YOU WIN!");
+                // increase score
+                branch(won, () => player1Score++, () => player2Score++);
+
+                msg = `${msg}\n${player1Score} - ${player2Score}`;
+
                 playing = false;
-            }
+                removeFromDom(ball.elem);
+                // add message div
+                const label = translate(addToDom(setProps(applyStyle(document.createElement("div"), baseStyle, {
+                    fontSize: px(50 * scaleFac),
+                    color: elemsColor,
+                    width: px(width),
+                    textAlign: "center",
+                    fontFamily: "monospace"
+                }), { innerText: msg })), vec2(0, 60));
+
+                setTimeout(() =>
+                {
+                    removeFromDom(label);
+                    addToDom(ball.elem);
+                    start();
+                }, restartTime);
+            },
+                { condition: () => ball.pos.x < 0,      value: () => [false, "YOU LOSE!"] },
+                { condition: () => ball.pos.x >= width, value: () => [true, "YOU WIN!"] }
+            );
 
             // move player 2
             // desired position (center of paddle for now)
@@ -258,7 +220,7 @@
             const desiredMove = ball.pos.y - player2.pos.y - hitPos;
             const move = normalize(Math.round(desiredMove)) * paddles.speed * delta;
 
-            player2.pos.y = clamp(player2.pos.y + move, -paddles.halfHeight, height - paddles.halfHeight);
+            player2.pos.y = clamp(player2.pos.y + move, 0, height - paddles.size.y);
             translate(player2.elem, player2.pos);
 
             // move the ball
@@ -275,7 +237,27 @@
             requestAnimationFrame(update);
         };
 
-        // start the update loop
-        update(0);
-    })();
+        const start = () =>
+        {
+            hitPos = 0;
+            playing = true;
+            last = 0;
+            startTime = -1;
+            player1.pos = vec2(paddles.padding, 0);
+            translate(player1.elem, player1.pos);
+            player2.pos = vec2(width - paddles.padding - paddles.size.x, 0);
+            translate(player2.elem, player2.pos);
+            ball.pos = vec2(width / 2, height / 2);
+            ball.vel = multScal(vec2(-0.3, -0.2), speedFac);
+            translate(ball.elem, ball.pos);
+
+            // start the update loop
+            requestAnimationFrame(update);
+        };
+
+        start();
+    };
+
+    // start the program
+    main();
 })();
